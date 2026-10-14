@@ -1,0 +1,51 @@
+/*
+ * Copyright 2014 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.dao;
+
+import com.navercorp.pinpoint.common.server.bo.AgentInfoBo;
+import com.navercorp.pinpoint.common.server.bo.SimpleAgentKey;
+import com.navercorp.pinpoint.web.vo.agent.AgentInfo;
+import com.navercorp.pinpoint.web.vo.agent.DetailedAgentInfo;
+import org.jspecify.annotations.Nullable;
+
+import java.util.List;
+
+/**
+ * @author emeroad
+ * @author HyunGil Jeong
+ */
+public interface AgentInfoDao {
+
+    DetailedAgentInfo findDetailedAgentInfo(String agentId, long maxTimestamp);
+
+    AgentInfo findAgentInfo(String agentId, long maxTimestamp);
+
+    AgentInfo findAgentInfo(String agentId, long fromTimestamp, long toTimestamp);
+
+    List<DetailedAgentInfo> findDetailedAgentInfos(List<String> agentIds, long maxTimestamp, AgentInfoQuery query);
+
+    List<AgentInfo> findAgentInfos(List<String> agentIds, long maxTimestamp);
+
+    AgentInfo getAgentInfo(String agentId, long agentStartTime);
+
+    List<AgentInfo> getAgentInfos(List<SimpleAgentKey> simpleAgentKeyList);
+
+    List<AgentInfoBo> findAgentInfoBos(String applicationName, int serviceTypeCode, List<String> agentIds, long timestamp);
+
+    // only for migration
+    List<AgentInfoBo> fetchAgentInfoBo(int limit, long minStamp, @Nullable String lastAgentId, @Nullable Long lastAgentStartTime);
+}

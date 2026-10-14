@@ -1,0 +1,47 @@
+# Maven
+deploy/
+target/
+
+# Gradle
+.gradle/
+build/
+
+# Gradle Wrappers
+!gradle/wrapper/gradle-wrapper.jar
+
+
+# Eclipse
+.classpath
+.project
+.settings/
+/.externalToolBuilders
+/build
+
+# IntelliJ
+*.iml
+*.ipr
+*.iws
+/.idea/
+out/
+.run
+
+# vscode
+.vscode
+
+# npm
+node_install/
+node_modules/
+jsdoc/
+
+#mac
+.DS_Store
+
+# FE local build dir
+dist/
+
+# logs
+logs/
+manager-logs/
+
+# git mergetool temp files
+.merge_file_*

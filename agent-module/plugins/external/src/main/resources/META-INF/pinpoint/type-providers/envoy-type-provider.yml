@@ -1,0 +1,26 @@
+serviceTypes:
+    # Envoy ServiceTypes are emitted by the native pinpoint-cpp Envoy tracer.
+    # The OTLP trace mapping does NOT re-type Envoy spans (they keep OPENTELEMETRY_SERVER /
+    # OPENTELEMETRY_HTTP_CLIENT) and uses only the annotation keys below for identification.
+    - code: 1550
+      name: 'ENVOY'
+      property:
+          recordStatistics: true
+    - code: 9301
+      name: 'ENVOY_INGRESS'
+      property:
+        recordStatistics: true
+    - code: 9302
+      name: 'ENVOY_EGRESS'
+      property:
+        recordStatistics: true
+
+annotationKeys:
+  - code: 9441
+    name: envoy.operation
+    property:
+      viewInRecordSet: true
+  - code: 9442
+    name: upstream.cluster
+    property:
+      viewInRecordSet: true

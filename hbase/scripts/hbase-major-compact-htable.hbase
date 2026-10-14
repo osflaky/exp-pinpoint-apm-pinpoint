@@ -1,0 +1,33 @@
+major_compact 'AgentInfo'
+
+major_compact 'AgentLifeCycle'
+major_compact 'AgentEvent'
+major_compact 'ApplicationIndex'
+
+major_compact 'StringMetaData'
+major_compact 'ApiMetaData'
+
+major_compact 'SqlMetaData_Ver2'
+major_compact 'SqlUidMetaData'
+
+major_compact 'ApplicationTraceIndex'
+major_compact 'TraceV2'
+
+major_compact 'ApplicationMapStatisticsCaller_Ver2'
+major_compact 'ApplicationMapStatisticsCallee_Ver2'
+major_compact 'ApplicationMapStatisticsSelf_Ver2'
+
+major_compact 'HostApplicationMap_Ver2'
+
+major_compact 'MapAppSelf'
+major_compact 'MapAgentSelf'
+major_compact 'MapAppOut'
+major_compact 'MapAppIn'
+major_compact 'MapAppHost'
+
+major_compact 'TraceIndex'
+
+major_compact 'Application'
+major_compact 'AgentId'
+
+exit

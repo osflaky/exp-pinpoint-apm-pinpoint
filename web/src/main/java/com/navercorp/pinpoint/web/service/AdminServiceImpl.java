@@ -1,0 +1,225 @@
+/*
+ * Copyright 2014 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.service;
+
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.util.CollectionUtils;
+import com.navercorp.pinpoint.web.service.component.ActiveAgentValidator;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+
+/**
+ * @author netspider
+ * @author HyunGil Jeong
+ */
+@org.springframework.stereotype.Service
+public class AdminServiceImpl implements AdminService {
+
+    private final Logger logger = LogManager.getLogger(this.getClass());
+
+    private static final Integer SERVICE_TYPE_EMPTY = null;
+
+    private final ActiveAgentValidator activeAgentValidator;
+
+    private final ApplicationIndexService applicationIndexService;
+
+    public AdminServiceImpl(ActiveAgentValidator activeAgentValidator, ApplicationIndexService applicationIndexService) {
+        this.activeAgentValidator = Objects.requireNonNull(activeAgentValidator, "activeAgentValidator");
+        this.applicationIndexService = Objects.requireNonNull(applicationIndexService, "applicationIndexService");
+    }
+
+    @Override
+    @Deprecated
+    public void removeApplicationName(String applicationName) {
+        this.applicationIndexService.deleteApplicationName(applicationName);
+    }
+
+    @Override
+    public void removeApplication(Service service, String applicationName, int serviceTypeCode) {
+        this.applicationIndexService.deleteApplication(service, applicationName, serviceTypeCode);
+    }
+
+    @Override
+    @Deprecated
+    public void removeAgentId(String applicationName, String agentId) {
+        applicationIndexService.deleteAgentId(applicationName, agentId);
+    }
+
+    @Override
+    public void removeAgent(Service service, String applicationName, int serviceTypeCode, String agentId) {
+        applicationIndexService.deleteAgentId(service, applicationName, serviceTypeCode, agentId);
+    }
+
+    @Override
+    @Deprecated
+    public void removeInactiveAgents(int durationDays) {
+        if (durationDays < MIN_DURATION_DAYS_FOR_INACTIVITY) {
+            throw new IllegalArgumentException("duration may not be less than " + MIN_DURATION_DAYS_FOR_INACTIVITY + " days");
+        }
+
+        List<Application> applications = this.applicationIndexService.selectAllApplications(Service.DEFAULT);
+
+
+        int index = 1;
+        for (Application application : applications) {
+            logger.info("Cleaning {} ({}/{})", application, index++, applications.size());
+            removeInactiveAgentInApplication(application.getApplicationName(), application.getServiceTypeCode(), durationDays);
+        }
+    }
+
+    public int removeInactiveAgentInApplication(String applicationName, Integer serviceType, int durationDays) {
+        try {
+            return removeInactiveAgentInApplication0(applicationName, serviceType, durationDays);
+        } catch (Exception e) {
+            logger.error("Backoff to remove inactive agents in application {}", applicationName, e);
+        }
+        return 0;
+    }
+
+    @Override
+    public int removeInactiveAgentInApplication(String applicationName, int durationDays) {
+        try {
+            return removeInactiveAgentInApplication0(applicationName, SERVICE_TYPE_EMPTY, durationDays);
+        } catch (Exception e) {
+            logger.error("Backoff to remove inactive agents in application {}", applicationName, e);
+        }
+        return 0;
+    }
+
+    private int removeInactiveAgentInApplication0(String applicationName, Integer serviceTypeCode, int durationDays) {
+        final List<String> agentsToDelete = new ArrayList<>(100);
+        int deleteCount = 0;
+
+        final List<String> agentIds = selectAgentIds(applicationName, serviceTypeCode);
+        for (String agentId : agentIds) {
+            if (!isInactiveAgent(agentId, durationDays)) {
+                continue;
+            }
+
+            agentsToDelete.add(agentId);
+            deleteCount++;
+
+            if (agentsToDelete.size() >= 100) {
+                logger.info("Delete {} of {}", agentsToDelete, applicationName);
+                deleteAgentInfos(applicationName, serviceTypeCode, agentsToDelete);
+                agentsToDelete.clear();
+            }
+        }
+
+        if (!agentsToDelete.isEmpty()) {
+            logger.info("Delete {} of {}", agentsToDelete, applicationName);
+            deleteAgentInfos(applicationName, serviceTypeCode, agentsToDelete);
+        }
+
+        logger.info("({}/{}) agents of {} had been cleaned up", deleteCount, agentIds.size(), applicationName);
+        return deleteCount;
+    }
+
+    private List<String> selectAgentIds(String applicationName, Integer serviceTypeCode) {
+        if (serviceTypeCode == null) {
+            return this.applicationIndexService.selectAgentIds(Service.DEFAULT, applicationName);
+        } else {
+            return this.applicationIndexService.selectAgentIds(Service.DEFAULT, applicationName, serviceTypeCode);
+        }
+    }
+
+    private void deleteAgentInfos(String applicationName, Integer serviceTypeCode, List<String> agentsToDelete) {
+        if (serviceTypeCode == null) {
+            applicationIndexService.deleteAgentIds(Service.DEFAULT, applicationName, agentsToDelete);
+        } else {
+            applicationIndexService.deleteAgentIds(Service.DEFAULT, applicationName, serviceTypeCode, agentsToDelete);
+        }
+    }
+
+    @Override
+    public Map<String, List<Application>> getAgentIdMap() {
+        Map<String, List<Application>> agentIdMap = new TreeMap<>();
+        List<Application> applications = this.applicationIndexService.selectAllApplications(Service.DEFAULT);
+        for (Application application : applications) {
+            List<String> agentIds = this.applicationIndexService.selectAgentIds(application.getService(), application.getApplicationName());
+            for (String agentId : agentIds) {
+                List<Application> applicationList = agentIdMap.computeIfAbsent(agentId, k -> new ArrayList<>());
+                applicationList.add(application);
+            }
+        }
+        return agentIdMap;
+    }
+
+    @Override
+    public Map<String, List<Application>> getDuplicateAgentIdMap() {
+        Map<String, List<Application>> duplicateAgentIdMap = new TreeMap<>();
+        Map<String, List<Application>> agentIdMap = this.getAgentIdMap();
+        for (Map.Entry<String, List<Application>> entry : agentIdMap.entrySet()) {
+            String agentId = entry.getKey();
+            List<Application> applications = entry.getValue();
+            if (CollectionUtils.hasLength(applications)) {
+                duplicateAgentIdMap.put(agentId, applications);
+            }
+        }
+        return duplicateAgentIdMap;
+    }
+
+    @Override
+    public Map<String, List<Application>> getInactiveAgents(String applicationName, int durationDays) {
+        Objects.requireNonNull(applicationName, "applicationName");
+
+        if (durationDays < MIN_DURATION_DAYS_FOR_INACTIVITY) {
+            throw new IllegalArgumentException("duration may not be less than " + MIN_DURATION_DAYS_FOR_INACTIVITY + " days");
+        }
+        List<String> agentIds = this.applicationIndexService.selectAgentIds(Service.DEFAULT, applicationName);
+        if (CollectionUtils.isEmpty(agentIds)) {
+            return Collections.emptyMap();
+        }
+        Map<String, List<Application>> agentIdMap = this.getAgentIdMap();
+        Map<String, List<Application>> inactiveAgentMap = new TreeMap<>();
+        List<String> inactiveAgentIds = filterInactiveAgents(agentIds, durationDays);
+        for (String inactiveAgentId : inactiveAgentIds) {
+            List<Application> applications = agentIdMap.get(inactiveAgentId);
+            inactiveAgentMap.put(inactiveAgentId, applications);
+        }
+        return inactiveAgentMap;
+    }
+
+    private List<String> filterInactiveAgents(List<String> agentIds, int durationDays) {
+        if (CollectionUtils.isEmpty(agentIds)) {
+            return Collections.emptyList();
+        }
+
+        return agentIds.stream()
+                .filter(agentId -> isInactiveAgent(agentId, durationDays))
+                .collect(Collectors.toList());
+    }
+
+    private boolean isInactiveAgent(String agentId, int durationDays) {
+        long now = System.currentTimeMillis();
+        Range range = Range.between(now - TimeUnit.DAYS.toMillis(durationDays), now);
+
+        return !this.activeAgentValidator.isActiveAgent(agentId, range);
+    }
+
+}

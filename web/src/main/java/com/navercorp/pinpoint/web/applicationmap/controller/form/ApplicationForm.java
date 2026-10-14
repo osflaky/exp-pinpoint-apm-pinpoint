@@ -1,0 +1,63 @@
+package com.navercorp.pinpoint.web.applicationmap.controller.form;
+
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import jakarta.validation.constraints.NotBlank;
+
+public class ApplicationForm {
+
+    public static final int UNDEFINED = ServiceType.UNDEFINED.getCode();
+
+
+    private String serviceName = Service.DEFAULT.getServiceName();
+
+    @NotBlank
+    private String applicationName;
+    private int serviceTypeCode = UNDEFINED;
+    private String serviceTypeName;
+
+    public ApplicationForm() {
+    }
+
+    public String getServiceName() {
+        return serviceName;
+    }
+
+    public void setServiceName(String serviceName) {
+        this.serviceName = serviceName;
+    }
+
+    public void setApplicationName(String applicationName) {
+        this.applicationName = applicationName;
+    }
+
+    public void setServiceTypeCode(int serviceTypeCode) {
+        this.serviceTypeCode = serviceTypeCode;
+    }
+
+    public void setServiceTypeName(String serviceTypeName) {
+        this.serviceTypeName = serviceTypeName;
+    }
+
+    public String getApplicationName() {
+        return applicationName;
+    }
+
+    public int getServiceTypeCode() {
+        return serviceTypeCode;
+    }
+
+    public String getServiceTypeName() {
+        return serviceTypeName;
+    }
+
+    @Override
+    public String toString() {
+        return "ApplicationForm{" +
+                "serviceName='" + serviceName + '\'' +
+                ", applicationName='" + applicationName + '\'' +
+                ", serviceTypeCode=" + serviceTypeCode +
+                ", serviceTypeName='" + serviceTypeName + '\'' +
+                '}';
+    }
+}

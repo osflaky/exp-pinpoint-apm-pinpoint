@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>pinpoint</artifactId>
+        <groupId>com.navercorp.pinpoint</groupId>
+        <version>4.0.0-SNAPSHOT</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>pinpoint-alarm-module</artifactId>
+    <name>pinpoint-alarm-module</name>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>alarm-common</module>
+        <module>alarm-web</module>
+        <module>alarm-batch</module>
+        <module>alarm-core</module>
+    </modules>
+
+</project>

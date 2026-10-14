@@ -1,0 +1,69 @@
+import { getConfiguration } from '@pinpoint-fe/ui/src/hooks';
+import {
+  APP_PATH,
+  Configuration,
+  SEARCH_PARAMETER_DATE_FORMAT,
+} from '@pinpoint-fe/ui/src/constants';
+import { convertParamsToQueryString, getTimezone } from '@pinpoint-fe/ui/src/utils';
+import {
+  getApplicationTypeAndName,
+  getParsedDateRange,
+  isValidDateRange,
+} from '@pinpoint-fe/ui/src/utils';
+import { parse } from 'date-fns';
+import { formatInTimeZone } from 'date-fns-tz';
+import { LoaderFunctionArgs, redirect } from 'react-router';
+
+export const inspectorRouteLoader = async ({ params, request }: LoaderFunctionArgs) => {
+  const application = getApplicationTypeAndName(params.application!);
+
+  let configuration: Configuration | undefined;
+  try {
+    configuration = await getConfiguration<Configuration>();
+  } catch {
+    // Continue with defaults so that date params are still redirected.
+  }
+
+  const timezone = getTimezone();
+
+  if (application?.applicationName && application.serviceType) {
+    const basePath = `${APP_PATH.INSPECTOR}/${params.application}`;
+    const queryParam = Object.fromEntries(new URL(request.url).searchParams);
+    const conditions = Object.keys(queryParam);
+
+    const from = queryParam?.from ?? '';
+    const to = queryParam?.to ?? '';
+
+    const currentDate = new Date();
+    const parsedDateRange = {
+      from: parse(from, SEARCH_PARAMETER_DATE_FORMAT, currentDate),
+      to: parse(to, SEARCH_PARAMETER_DATE_FORMAT, currentDate),
+    };
+    const validateDateRange = isValidDateRange(configuration?.['periodMax.inspector'] || 42);
+    const defaultParsedDateRange = getParsedDateRange({ from, to }, validateDateRange);
+    const defaultFormattedDateRange = {
+      from: formatInTimeZone(defaultParsedDateRange.from, timezone, SEARCH_PARAMETER_DATE_FORMAT),
+      to: formatInTimeZone(defaultParsedDateRange.to, timezone, SEARCH_PARAMETER_DATE_FORMAT),
+    };
+    const defaultDestination = `${basePath}?${convertParamsToQueryString({
+      ...queryParam,
+      ...defaultFormattedDateRange,
+    })}`;
+
+    if (conditions.length === 0) {
+      return redirect(defaultDestination);
+    } else {
+      if (
+        conditions.includes('from') &&
+        conditions.includes('to') &&
+        validateDateRange(parsedDateRange)
+      ) {
+        return application;
+      } else {
+        return redirect(defaultDestination);
+      }
+    }
+  }
+
+  return application;
+};

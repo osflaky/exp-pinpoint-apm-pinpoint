@@ -1,0 +1,164 @@
+/*
+ * Copyright 2019 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.websocket;
+
+import com.navercorp.pinpoint.common.util.StringUtils;
+import com.navercorp.pinpoint.web.security.ServerMapDataFilter;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import com.navercorp.pinpoint.service.service.ServiceModelResolver;
+import com.navercorp.pinpoint.service.service.ServiceNotFoundException;
+import com.navercorp.pinpoint.web.websocket.message.PinpointWebSocketMessage;
+import com.navercorp.pinpoint.web.websocket.message.PinpointWebSocketMessageConverter;
+import com.navercorp.pinpoint.web.websocket.message.PinpointWebSocketMessageType;
+import com.navercorp.pinpoint.web.websocket.message.RequestMessage;
+import org.apache.commons.collections4.MapUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.lang.NonNull;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+import java.io.IOException;
+import java.util.Objects;
+
+/**
+ * @author Taejin Koo
+ */
+public abstract class ActiveThreadCountHandler extends TextWebSocketHandler implements PinpointWebSocketHandler {
+
+    public static final String SERVICE_NAME_KEY = "serviceName";
+    public static final String SERVICE_TYPE_NAME_KEY = "serviceTypeName";
+    public static final String APPLICATION_NAME_KEY = "applicationName";
+    public static final String DEFAULT_REQUEST_MAPPING = "/api/agent/activeThread";
+
+    static final String API_ACTIVE_THREAD_COUNT = "activeThreadCount";
+
+    private final Logger logger = LogManager.getLogger(this.getClass());
+    private final PinpointWebSocketMessageConverter messageConverter;
+    private final String requestMapping;
+    private final ServerMapDataFilter serverMapDataFilter;
+    private final ServiceModelResolver serviceModelResolver;
+
+    public ActiveThreadCountHandler(
+            PinpointWebSocketMessageConverter converter,
+            ServerMapDataFilter serverMapDataFilter,
+            ServiceModelResolver serviceModelResolver,
+            String requestMapping
+    ) {
+        this.messageConverter = Objects.requireNonNull(converter, "converter");
+        this.serverMapDataFilter = serverMapDataFilter;
+        this.serviceModelResolver = Objects.requireNonNull(serviceModelResolver, "serviceModelResolver");
+        this.requestMapping = Objects.requireNonNullElse(requestMapping, DEFAULT_REQUEST_MAPPING);
+    }
+
+    @Override
+    public String getRequestMapping() {
+        return requestMapping;
+    }
+
+    private WebSocketSessionContext getSessionContext(WebSocketSession webSocketSession) {
+        final WebSocketSessionContext sessionContext = WebSocketSessionContext.getSessionContext(webSocketSession);
+        if (sessionContext == null) {
+            throw new IllegalStateException("WebSocketSessionContext not initialized");
+        }
+        return sessionContext;
+    }
+
+    @Override
+    protected void handleTextMessage(@NonNull WebSocketSession webSocketSession, TextMessage message) throws Exception {
+        logger.info("handleTextMessage. session:{}, remote:{}, message:{}.", webSocketSession, webSocketSession.getRemoteAddress(), message.getPayload());
+
+        PinpointWebSocketMessage webSocketMessage = messageConverter.getWebSocketMessage(message.getPayload());
+        PinpointWebSocketMessageType webSocketMessageType = webSocketMessage.getType();
+        switch (webSocketMessageType) {
+            case REQUEST -> handleRequestMessage0(webSocketSession, (RequestMessage) webSocketMessage);
+            case PONG -> handlePongMessage0(webSocketSession);
+            default -> logger.warn("Unexpected WebSocketMessageType received. messageType:{}.", webSocketMessageType);
+        }
+
+        // this method will be checked socket status.
+        super.handleTextMessage(webSocketSession, message);
+    }
+
+    private void handleRequestMessage0(WebSocketSession webSocketSession, RequestMessage requestMessage) {
+        if (serverMapDataFilter != null && serverMapDataFilter.filter(webSocketSession, requestMessage)) {
+            closeSession(webSocketSession, serverMapDataFilter.getCloseStatus(requestMessage));
+            return;
+        }
+        
+        final String command = requestMessage.getCommand();
+        if (API_ACTIVE_THREAD_COUNT.equals(command)) {
+            handleActiveThreadCount(webSocketSession, requestMessage);
+        } else {
+            logger.warn("Unknown command:{}", command);
+            CloseStatus status = CloseStatus.BAD_DATA.withReason("Unknown command");
+            closeSession(webSocketSession, status);
+        }
+    }
+
+    private void handleActiveThreadCount(WebSocketSession webSocketSession, RequestMessage requestMessage) {
+        final String applicationName = MapUtils.getString(requestMessage.getParameters(), APPLICATION_NAME_KEY);
+        if (applicationName == null) {
+            CloseStatus status = CloseStatus.BAD_DATA.withReason("applicationName not found");
+            closeSession(webSocketSession, status);
+            return;
+        }
+
+        final String serviceName = MapUtils.getString(requestMessage.getParameters(), SERVICE_NAME_KEY);
+        final Service service;
+        try {
+            service = resolveService(serviceName);
+        } catch (ServiceNotFoundException e) {
+            CloseStatus status = CloseStatus.BAD_DATA.withReason("Unknown serviceName " + serviceName);
+            closeSession(webSocketSession, status);
+            return;
+        }
+        handleActiveThreadCount(webSocketSession, service.getServiceName(), applicationName);
+    }
+
+    private Service resolveService(String serviceName) {
+        if (StringUtils.isEmpty(serviceName)) {
+            return Service.DEFAULT;
+        }
+        return serviceModelResolver.getService(serviceName);
+    }
+
+    protected abstract void handleActiveThreadCount(WebSocketSession webSocketSession, String serviceName, String applicationName);
+
+    private void closeSession(WebSocketSession session, CloseStatus status) {
+        try {
+            session.close(status);
+        } catch (IOException e) {
+            logger.warn("Failed to close session. session:{}, status:{}", session, status, e);
+        }
+    }
+
+    private void handlePongMessage0(WebSocketSession webSocketSession) {
+        final WebSocketSessionContext sessionContext = getSessionContext(webSocketSession);
+        sessionContext.changeHealthCheckSuccess();
+    }
+
+    @Override
+    protected void handlePongMessage(@NonNull WebSocketSession webSocketSession, org.springframework.web.socket.PongMessage message) throws Exception {
+        logger.info("handlePongMessage. session:{}, remote:{}, message:{}.", webSocketSession, webSocketSession.getRemoteAddress(), message.getPayload());
+
+        super.handlePongMessage(webSocketSession, message);
+    }
+
+}

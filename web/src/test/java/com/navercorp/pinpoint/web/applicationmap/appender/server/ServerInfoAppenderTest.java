@@ -1,0 +1,340 @@
+/*
+ * Copyright 2017 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.applicationmap.appender.server;
+
+import com.google.common.util.concurrent.MoreExecutors;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkDataDuplexMap;
+import com.navercorp.pinpoint.common.server.bo.SimpleAgentKey;
+import com.navercorp.pinpoint.common.server.uid.Service;
+import com.navercorp.pinpoint.common.server.util.AgentLifeCycleState;
+import com.navercorp.pinpoint.common.timeseries.time.Range;
+import com.navercorp.pinpoint.common.trace.ServiceType;
+import com.navercorp.pinpoint.common.trace.ServiceTypeFactory;
+import com.navercorp.pinpoint.web.applicationmap.appender.server.datasource.AgentInfoServerGroupListDataSource;
+import com.navercorp.pinpoint.web.applicationmap.appender.server.datasource.ServerGroupListDataSource;
+import com.navercorp.pinpoint.web.applicationmap.nodes.Node;
+import com.navercorp.pinpoint.web.applicationmap.nodes.NodeList;
+import com.navercorp.pinpoint.web.applicationmap.nodes.ServerGroupList;
+import com.navercorp.pinpoint.applicationmap.rawdata.LinkData;
+import com.navercorp.pinpoint.web.service.AgentInfoService;
+import com.navercorp.pinpoint.web.service.AgentListV2Service;
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.web.vo.agent.AgentIdEntry;
+import com.navercorp.pinpoint.web.vo.agent.AgentInfo;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.INCLUDE_DESTINATION_ID;
+import static com.navercorp.pinpoint.common.trace.ServiceTypeProperty.TERMINAL;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+/**
+ * @author HyunGil Jeong
+ */
+public class ServerInfoAppenderTest {
+
+    private final ExecutorService executor = Executors.newFixedThreadPool(4);
+
+    private final ServerInfoAppenderFactory serverInfoAppenderFactory = new ServerInfoAppenderFactory(executor);
+
+    private ServerGroupListDataSource serverGroupListDataSource;
+
+    private ServerInfoAppender serverInfoAppender;
+
+    private long timeoutMillis = 1000;
+
+    @BeforeEach
+    public void setUp() {
+        serverGroupListDataSource = mock(ServerGroupListDataSource.class);
+        ServerGroupListFactory serverGroupListFactory = new DefaultServerGroupListFactory(serverGroupListDataSource);
+        serverInfoAppender = serverInfoAppenderFactory.create(serverGroupListFactory);
+    }
+
+    @AfterEach
+    public void cleanUp() {
+        MoreExecutors.shutdownAndAwaitTermination(executor, Duration.ofSeconds(3));
+    }
+
+    @Test
+    public void nullNodeList() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        NodeList nodeList = null;
+        LinkDataDuplexMap linkDataDuplexMap = mock(LinkDataDuplexMap.class);
+        // When
+        serverInfoAppender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        Assertions.assertNull(nodeList);
+        verifyNoInteractions(serverGroupListDataSource);
+        verifyNoInteractions(linkDataDuplexMap);
+    }
+
+    @Test
+    public void emptyNodeList() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        NodeList nodeList = NodeList.of();
+        LinkDataDuplexMap linkDataDuplexMap = mock(LinkDataDuplexMap.class);
+        // When
+        serverInfoAppender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        Assertions.assertTrue(nodeList.getNodeList().isEmpty());
+        verifyNoInteractions(serverGroupListDataSource);
+        verifyNoInteractions(linkDataDuplexMap);
+    }
+
+    @Test
+    public void wasNode() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        LinkDataDuplexMap linkDataDuplexMap = mock(LinkDataDuplexMap.class);
+
+        Node wasNode = new Node(new Application("Was", ServiceType.TEST_STAND_ALONE));
+        NodeList nodeList = NodeList.of(wasNode);
+
+        ServerGroupList serverGroupList = ServerGroupList.empty();
+        when(serverGroupListDataSource.createServerGroupList(wasNode, range)).thenReturn(serverGroupList);
+        // When
+        serverInfoAppender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        Assertions.assertSame(serverGroupList, wasNode.getServerGroupList());
+        verifyNoInteractions(linkDataDuplexMap);
+    }
+
+    @Test
+    public void wasNodes() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        NodeList.Builder nodeBuilder = NodeList.newBuilder();
+        LinkDataDuplexMap linkDataDuplexMap = mock(LinkDataDuplexMap.class);
+
+        Node wasNode1 = new Node(new Application("Was1", ServiceType.TEST_STAND_ALONE));
+        nodeBuilder.addNode(wasNode1);
+        Node wasNode2 = new Node(new Application("Was2", ServiceType.TEST_STAND_ALONE));
+        nodeBuilder.addNode(wasNode2);
+        NodeList nodeList = nodeBuilder.build();
+
+        ServerGroupList serverGroupList1 = ServerGroupList.empty();
+        when(serverGroupListDataSource.createServerGroupList(wasNode1, range)).thenReturn(serverGroupList1);
+        ServerGroupList serverGroupList2 = ServerGroupList.empty();
+        when(serverGroupListDataSource.createServerGroupList(wasNode2, range)).thenReturn(serverGroupList2);
+        // When
+        serverInfoAppender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        Assertions.assertSame(serverGroupList1, wasNode1.getServerGroupList());
+        Assertions.assertSame(serverGroupList2, wasNode2.getServerGroupList());
+        verifyNoInteractions(linkDataDuplexMap);
+    }
+
+    @Test
+    public void terminalNode() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        LinkDataDuplexMap linkDataDuplexMap = new LinkDataDuplexMap();
+
+        ServiceType terminalType = ServiceTypeFactory.of(2000, "TERMINAL", TERMINAL, INCLUDE_DESTINATION_ID);
+        Application terminalApplication = new Application("Terminal", terminalType);
+        Node terminalNode = new Node(terminalApplication);
+        NodeList nodeList = NodeList.of(terminalNode);
+
+        Application fromApplication = new Application("FromWas", ServiceType.TEST_STAND_ALONE);
+        LinkData linkData = new LinkData(fromApplication, terminalApplication);
+        linkData.addLinkData(
+                "wasAgent", ServiceType.TEST_STAND_ALONE,
+                "terminalNodeAddress", terminalType,
+                System.currentTimeMillis(), terminalType.getHistogramSchema().getNormalSlot().getSlotTime(), 1);
+        linkDataDuplexMap.addSourceLinkData(linkData);
+        // When
+        serverInfoAppender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        Assertions.assertEquals(1, terminalNode.getServerGroupList().getInstanceCount());
+    }
+
+    @Test
+    public void terminalNode_multipleInstances() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        LinkDataDuplexMap linkDataDuplexMap = new LinkDataDuplexMap();
+
+        ServiceType terminalType = ServiceTypeFactory.of(2000, "TERMINAL", TERMINAL, INCLUDE_DESTINATION_ID);
+        Application terminalApplication = new Application("Terminal", terminalType);
+        Node terminalNode = new Node(terminalApplication);
+        NodeList nodeList = NodeList.of(terminalNode);
+
+        Application fromApplication = new Application("FromWas", ServiceType.TEST_STAND_ALONE);
+        LinkData linkData = new LinkData(fromApplication, terminalApplication);
+        linkData.addLinkData(
+                "wasAgent", ServiceType.TEST_STAND_ALONE,
+                "terminalNodeAddress1", terminalType,
+                System.currentTimeMillis(), terminalType.getHistogramSchema().getNormalSlot().getSlotTime(), 1);
+        linkData.addLinkData(
+                "wasAgent", ServiceType.TEST_STAND_ALONE,
+                "terminalNodeAddress2", terminalType,
+                System.currentTimeMillis(), terminalType.getHistogramSchema().getNormalSlot().getSlotTime(), 1);
+        linkDataDuplexMap.addSourceLinkData(linkData);
+        // When
+        serverInfoAppender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        Assertions.assertEquals(2, terminalNode.getServerGroupList().getInstanceCount());
+    }
+
+    @Test
+    public void userNode() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        LinkDataDuplexMap linkDataDuplexMap = mock(LinkDataDuplexMap.class);
+
+        Node userNode = new Node(new Application("User", ServiceType.USER));
+        NodeList nodeList = NodeList.of(userNode);
+        // When
+        serverInfoAppender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        Assertions.assertEquals(0, userNode.getServerGroupList().getInstanceCount());
+        verifyNoInteractions(linkDataDuplexMap);
+    }
+
+    @Test
+    public void unknownNode() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        LinkDataDuplexMap linkDataDuplexMap = mock(LinkDataDuplexMap.class);
+
+        Node unknownNode = new Node(new Application("Unknown", ServiceType.UNKNOWN));
+        NodeList nodeList = NodeList.of(unknownNode);
+
+        // When
+        serverInfoAppender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        Assertions.assertEquals(0, unknownNode.getServerGroupList().getInstanceCount());
+        verifyNoInteractions(linkDataDuplexMap);
+    }
+
+    @Test
+    public void wasNode_agentReadV2() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        LinkDataDuplexMap linkDataDuplexMap = mock(LinkDataDuplexMap.class);
+
+        Node wasNode = new Node(new Application("Was", ServiceType.TEST_STAND_ALONE));
+        NodeList nodeList = NodeList.of(wasNode);
+
+        AgentInfoService agentInfoServiceMock = mock(AgentInfoService.class);
+        AgentListV2Service agentListV2ServiceMock = mock(AgentListV2Service.class);
+
+        Application app = wasNode.getApplication();
+        AgentIdEntry agentIdEntry = new AgentIdEntry(app, "agent1", 1000L, "agent1", AgentLifeCycleState.RUNNING, 500L);
+        when(agentListV2ServiceMock.getActiveAgentList(any(Service.class), anyString(), any(ServiceType.class), any(Range.class)))
+                .thenReturn(List.of(agentIdEntry));
+
+        when(agentInfoServiceMock.getAgentInfos(anyList())).thenAnswer(invocation -> {
+            List<SimpleAgentKey> keys = invocation.getArgument(0);
+            List<AgentInfo> result = new ArrayList<>();
+            for (SimpleAgentKey key : keys) {
+                AgentInfo agentInfo = new AgentInfo();
+                agentInfo.setAgentId(key.agentId());
+                agentInfo.setStartTimestamp(key.agentStartTime());
+                agentInfo.setHostName(key.agentId() + "_host");
+                result.add(agentInfo);
+            }
+            return result;
+        });
+
+        AgentInfoServerGroupListDataSource v2DataSource = new AgentInfoServerGroupListDataSource(agentInfoServiceMock, agentListV2ServiceMock);
+        ServerGroupListFactory v2Factory = new DefaultServerGroupListFactory(v2DataSource);
+        ServerInfoAppender v2Appender = serverInfoAppenderFactory.create(v2Factory);
+        // When
+        v2Appender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        Assertions.assertEquals(1, wasNode.getServerGroupList().getInstanceCount());
+        verifyNoInteractions(linkDataDuplexMap);
+    }
+
+    @Test
+    public void wasNode_agentReadV2_agentInfoNotFound() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        LinkDataDuplexMap linkDataDuplexMap = mock(LinkDataDuplexMap.class);
+
+        Node wasNode = new Node(new Application("Was", ServiceType.TEST_STAND_ALONE));
+        NodeList nodeList = NodeList.of(wasNode);
+
+        AgentInfoService agentInfoServiceMock = mock(AgentInfoService.class);
+        AgentListV2Service agentListV2ServiceMock = mock(AgentListV2Service.class);
+
+        Application app = wasNode.getApplication();
+        AgentIdEntry agentIdEntry = new AgentIdEntry(app, "agent1", 1000L, "agent1", AgentLifeCycleState.RUNNING, 500L);
+        when(agentListV2ServiceMock.getActiveAgentList(any(Service.class), anyString(), any(ServiceType.class), any(Range.class)))
+                .thenReturn(List.of(agentIdEntry));
+
+        when(agentInfoServiceMock.getAgentInfos(anyList())).thenAnswer(invocation -> {
+            List<SimpleAgentKey> keys = invocation.getArgument(0);
+            List<AgentInfo> result = new ArrayList<>();
+            for (SimpleAgentKey ignored : keys) {
+                result.add(null);
+            }
+            return result;
+        });
+
+        AgentInfoServerGroupListDataSource v2DataSource = new AgentInfoServerGroupListDataSource(agentInfoServiceMock, agentListV2ServiceMock);
+        ServerGroupListFactory v2Factory = new DefaultServerGroupListFactory(v2DataSource);
+        ServerInfoAppender v2Appender = serverInfoAppenderFactory.create(v2Factory);
+        // When
+        v2Appender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        Assertions.assertEquals(0, wasNode.getServerGroupList().getInstanceCount());
+        verifyNoInteractions(linkDataDuplexMap);
+    }
+
+    @Test
+    public void wasNode_agentReadV2_emptyAgentList() {
+        // Given
+        Range range = Range.between(0, 60 * 1000);
+        LinkDataDuplexMap linkDataDuplexMap = mock(LinkDataDuplexMap.class);
+
+        Node wasNode = new Node(new Application("Was", ServiceType.TEST_STAND_ALONE));
+        NodeList nodeList = NodeList.of(wasNode);
+
+        AgentInfoService agentInfoServiceMock = mock(AgentInfoService.class);
+        AgentListV2Service agentListV2ServiceMock = mock(AgentListV2Service.class);
+        when(agentListV2ServiceMock.getActiveAgentList(any(Service.class), anyString(), any(ServiceType.class), any(Range.class)))
+                .thenReturn(List.of());
+
+        AgentInfoServerGroupListDataSource v2DataSource = new AgentInfoServerGroupListDataSource(agentInfoServiceMock, agentListV2ServiceMock);
+        ServerGroupListFactory v2Factory = new DefaultServerGroupListFactory(v2DataSource);
+        ServerInfoAppender v2Appender = serverInfoAppenderFactory.create(v2Factory);
+        // When
+        v2Appender.appendServerInfo(range, nodeList, linkDataDuplexMap, timeoutMillis);
+        // Then
+        assertThat(wasNode.getServerGroupList()).isEqualTo(ServerGroupList.empty());
+        verifyNoInteractions(agentInfoServiceMock);
+        verifyNoInteractions(linkDataDuplexMap);
+    }
+}

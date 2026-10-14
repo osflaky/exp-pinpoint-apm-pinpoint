@@ -1,0 +1,48 @@
+/*
+ * Copyright 2014 NAVER Corp.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.navercorp.pinpoint.web.service;
+
+import com.navercorp.pinpoint.common.server.bo.Application;
+import com.navercorp.pinpoint.common.server.uid.Service;
+
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * @author netspider
+ * @author yjqg6666
+ */
+@org.springframework.stereotype.Service
+public class CommonServiceImpl implements CommonService {
+
+    private final ApplicationIndexService applicationIndexService;
+
+    public CommonServiceImpl(ApplicationIndexService applicationIndexService) {
+        this.applicationIndexService = Objects.requireNonNull(applicationIndexService, "applicationIndexService");
+    }
+
+    @Override
+    public List<Application> selectAllApplicationNames() {
+        return applicationIndexService.selectAllApplications(Service.DEFAULT);
+    }
+
+    @Override
+    public List<Application> selectAllApplicationNames(Service service) {
+        return applicationIndexService.selectAllApplications(service);
+    }
+
+}
